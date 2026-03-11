@@ -1,0 +1,640 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>ドライブログ</title>
+  
+  <!-- Tailwind CSS (デザインを整える魔法のコード) -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  
+  <!-- FontAwesome (アイコンを表示するためのコード) -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  
+  <!-- React & ReactDOM (アプリを動かすためのコード) -->
+  <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  
+  <!-- Babel (ブラウザ内でReactコードを変換して動かせるようにするコード) -->
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
+  <style>
+    body { -webkit-font-smoothing: antialiased; }
+  </style>
+</head>
+<body class="bg-slate-50">
+  <!-- ここにアプリが表示されます -->
+  <div id="root"></div>
+
+  <!-- アプリの本体プログラム -->
+  <script type="text/babel">
+    const { useState, useEffect, useRef } = React;
+
+    function App() {
+      const [isModalOpen, setIsModalOpen] = useState(false);
+      const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+      const [editingId, setEditingId] = useState(null); 
+      const fileInputRef = useRef(null);
+      
+      const [dialog, setDialog] = useState({ type: null, message: '', onConfirm: null });
+
+      const showAlert = (message) => setDialog({ type: 'alert', message, onConfirm: null });
+      const showConfirm = (message, onConfirm) => setDialog({ type: 'confirm', message, onConfirm });
+      const closeDialog = () => setDialog({ type: null, message: '', onConfirm: null });
+
+      const STORAGE_KEY = 'drive_log_local_data';
+
+      const [records, setRecords] = useState(() => {
+        const savedData = localStorage.getItem(STORAGE_KEY);
+        if (savedData) {
+          try {
+            return JSON.parse(savedData);
+          } catch (e) {
+            console.error("データの読み込みに失敗しました", e);
+          }
+        }
+        return [
+          { id: 4, date: '2026-03-11', time: '18:00', location: '越谷営業所', purpose: '帰社', odometer: '12580', notes: '本日の業務終了。給油済み。' },
+          { id: 3, date: '2026-03-11', time: '14:30', location: '千代田区 丸の内ビル', purpose: '商談', odometer: '', notes: '新規プロジェクトのキックオフ。' },
+          { id: 2, date: '2026-03-11', time: '10:00', location: 'さいたま市 大宮区', purpose: '納品', odometer: '', notes: 'サンプル品納入完了。' },
+          { id: 1, date: '2026-03-11', time: '08:30', location: '越谷営業所', purpose: '出発', odometer: '12520', notes: '日常点検異常なし。' }
+        ];
+      });
+
+      useEffect(() => {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(records));
+      }, [records]);
+
+      const [formData, setFormData] = useState({
+        date: new Date().toISOString().split('T')[0],
+        time: new Date().toTimeString().substring(0, 5),
+        location: '',
+        purpose: '',
+        odometer: '',
+        notes: ''
+      });
+
+      const purposeTags = ['出発', '帰社', '商談', '打ち合わせ', '納品', '移動', 'その他'];
+
+      const handleInputChange = (e) => {
+        const { name, value } = e.target;
+        setFormData({ ...formData, [name]: value });
+      };
+
+      const handleTagClick = (tag) => {
+        setFormData({ ...formData, purpose: tag });
+      };
+
+      const getLatestOdometer = () => {
+        const sorted = [...records].sort((a, b) => new Date(`${b.date}T${b.time}`) - new Date(`${a.date}T${a.time}`));
+        const latest = sorted.find(r => r.odometer && r.odometer.toString().trim() !== '');
+        return latest ? latest.odometer : '';
+      };
+
+      const openNewRecordModal = () => {
+        setEditingId(null);
+        setFormData({
+          date: new Date().toISOString().split('T')[0],
+          time: new Date().toTimeString().substring(0, 5),
+          location: '',
+          purpose: '',
+          odometer: getLatestOdometer(),
+          notes: ''
+        });
+        setIsModalOpen(true);
+      };
+
+      const handleSave = () => {
+        if (!formData.location || !formData.purpose) {
+          showAlert('「どこに」と「なんで」は入力必須です。');
+          return;
+        }
+        
+        if (editingId) {
+          setRecords(records.map(record => 
+            record.id === editingId ? { ...formData, id: editingId } : record
+          ));
+        } else {
+          const newRecord = { id: Date.now(), ...formData };
+          setRecords([newRecord, ...records]);
+        }
+        
+        closeModal();
+      };
+
+      const handleEdit = (recordToEdit) => {
+        setFormData({
+          date: recordToEdit.date,
+          time: recordToEdit.time,
+          location: recordToEdit.location,
+          purpose: recordToEdit.purpose,
+          odometer: recordToEdit.odometer || '',
+          notes: recordToEdit.notes || ''
+        });
+        setEditingId(recordToEdit.id);
+        setIsModalOpen(true);
+      };
+
+      const closeModal = () => {
+        setIsModalOpen(false);
+        setEditingId(null);
+        setFormData({
+          date: new Date().toISOString().split('T')[0],
+          time: new Date().toTimeString().substring(0, 5),
+          location: '',
+          purpose: '',
+          odometer: '',
+          notes: ''
+        });
+      };
+
+      const handleDelete = (idToDelete) => {
+        showConfirm('この記録を削除してもよろしいですか？', () => {
+          setRecords(records.filter(record => record.id !== idToDelete));
+          closeDialog();
+        });
+      };
+
+      const handleBackup = () => {
+        if (records.length === 0) {
+          showAlert('バックアップするデータがありません。');
+          return;
+        }
+        const dataStr = JSON.stringify(records, null, 2);
+        const blob = new Blob([dataStr], { type: 'application/json;charset=utf-8' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.setAttribute('hidden', '');
+        a.setAttribute('href', url);
+        const today = new Date().toISOString().split('T')[0];
+        a.setAttribute('download', `運行記録バックアップ_${today}.json`);
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        setIsSettingsOpen(false);
+      };
+
+      const handleRestore = (e) => {
+        const file = e.target.files[0];
+        if (!file) return;
+
+        const reader = new FileReader();
+        reader.onload = (event) => {
+          try {
+            const importedData = JSON.parse(event.target.result);
+            if (Array.isArray(importedData)) {
+              showConfirm('現在のデータは上書きされます。復元してもよろしいですか？\n※既存のデータは消去されます。', () => {
+                setRecords(importedData);
+                setIsSettingsOpen(false);
+                closeDialog();
+                setTimeout(() => showAlert('データを復元しました！'), 150);
+              });
+            } else {
+              showAlert('不正なバックアップファイルです。');
+            }
+          } catch (error) {
+            showAlert('ファイルの読み込みに失敗しました。正しいJSONファイルを選択してください。');
+          }
+        };
+        reader.readAsText(file);
+        e.target.value = null;
+      };
+
+      const handleClearAll = () => {
+        if (records.length === 0) return;
+        showConfirm('【警告】すべての記録を完全に削除します。\n一度削除すると復元できません（バックアップがある場合を除く）。\n\n本当によろしいですか？', () => {
+          setRecords([]);
+          setIsSettingsOpen(false);
+          closeDialog();
+        });
+      };
+
+      const handleExportCSV = () => {
+        if (records.length === 0) {
+          showAlert('出力するデータがありません。');
+          return;
+        }
+        const headers = ['日付', '時刻', '場所（どこに）', '目的（なんで）', 'メーター値(km)', '備考'];
+        const sortedForExport = [...records].sort((a, b) => new Date(`${a.date}T${a.time}`) - new Date(`${b.date}T${b.time}`));
+        
+        const csvRows = sortedForExport.map(record => {
+          const escapeQuotes = (str) => `"${(str || '').toString().replace(/"/g, '""')}"`;
+          return [
+            record.date, 
+            record.time, 
+            escapeQuotes(record.location), 
+            escapeQuotes(record.purpose), 
+            record.odometer || '', 
+            escapeQuotes(record.notes)
+          ].join(',');
+        });
+
+        const csvContent = [headers.join(','), ...csvRows].join('\r\n');
+        const bom = new Uint8Array([0xEF, 0xBB, 0xBF]);
+        
+        const blob = new Blob([bom, csvContent], { type: 'text/csv;charset=utf-8;' });
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.setAttribute('hidden', '');
+        a.setAttribute('href', url);
+        const today = new Date().toISOString().split('T')[0];
+        a.setAttribute('download', `運行記録_${today}.csv`);
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+      };
+
+      const formatDate = (dateString) => {
+        const [year, month, day] = dateString.split('-');
+        return `${parseInt(year)}年${parseInt(month)}月${parseInt(day)}日`;
+      };
+
+      const sortedRecords = [...records].sort((a, b) => new Date(`${b.date}T${b.time}`) - new Date(`${a.date}T${a.time}`));
+
+      const groupedRecords = sortedRecords.reduce((acc, record) => {
+        if (!acc[record.date]) acc[record.date] = [];
+        acc[record.date].push(record);
+        return acc;
+      }, {});
+
+      const sortedDates = Object.keys(groupedRecords).sort((a, b) => new Date(b) - new Date(a));
+
+      const calculateDailyDistance = (dailyRecords) => {
+        const odometers = dailyRecords.map(r => parseFloat(r.odometer)).filter(val => !isNaN(val));
+        if (odometers.length >= 2) {
+          const max = Math.max(...odometers);
+          const min = Math.min(...odometers);
+          return (max - min).toFixed(1);
+        }
+        return 0;
+      };
+
+      return (
+        <div className="min-h-screen font-sans text-slate-800 pb-24 relative">
+          
+          {/* ヘッダー */}
+          <header className="bg-white px-4 sm:px-6 py-4 shadow-sm sticky top-0 z-10 flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <div className="bg-indigo-600 w-9 h-9 rounded-xl text-white shadow-sm flex items-center justify-center">
+                <i className="fa-solid fa-car text-[18px]"></i>
+              </div>
+              <h1 className="text-xl font-bold tracking-tight text-slate-900">ドライブログ</h1>
+            </div>
+            
+            <div className="flex items-center gap-2">
+              <button
+                onClick={handleExportCSV}
+                className="flex items-center gap-1.5 text-sm font-bold text-indigo-700 bg-indigo-50 hover:bg-indigo-100 px-3 sm:px-4 py-2 rounded-full transition-colors shadow-sm border border-indigo-100"
+                title="日報（Excel用）出力"
+              >
+                <i className="fa-solid fa-download text-[14px]"></i>
+                <span className="hidden sm:inline">Excel出力</span>
+              </button>
+              
+              <button
+                onClick={() => setIsSettingsOpen(true)}
+                className="w-9 h-9 flex items-center justify-center text-slate-500 bg-slate-100 hover:bg-slate-200 rounded-full transition-colors"
+                title="データ管理・設定"
+              >
+                <i className="fa-solid fa-gear text-[18px]"></i>
+              </button>
+            </div>
+          </header>
+
+          {/* メインコンテンツ */}
+          <main className="max-w-2xl mx-auto p-4 sm:p-6 space-y-4">
+            
+            <button
+              onClick={openNewRecordModal}
+              className="w-full bg-white border-2 border-dashed border-indigo-200 hover:border-indigo-400 hover:bg-indigo-50 text-indigo-600 rounded-2xl p-4 flex items-center justify-center gap-2 font-bold transition-colors shadow-sm mb-2"
+            >
+              <i className="fa-solid fa-plus text-[20px]"></i>
+              新しい記録を追加する
+            </button>
+
+            {records.length === 0 ? (
+              <div className="text-center py-16 text-slate-400">
+                <i className="fa-solid fa-car text-[48px] block mx-auto mb-4 opacity-30"></i>
+                <p>まだ記録がありません。</p>
+                <p className="text-sm mt-2">データはブラウザに自動保存されます。</p>
+              </div>
+            ) : (
+              sortedDates.map(date => {
+                const dailyRecords = groupedRecords[date];
+                const distance = calculateDailyDistance(dailyRecords);
+                
+                return (
+                  <div key={date} className="mb-8">
+                    <div className="flex items-center justify-between mb-4 mt-8 first:mt-4 px-2">
+                      <div className="flex items-center gap-2">
+                        <i className="fa-solid fa-calendar-day text-[18px] text-slate-400"></i>
+                        <h2 className="text-lg font-bold text-slate-800">{formatDate(date)}</h2>
+                      </div>
+                      {distance > 0 && (
+                        <div className="flex items-center gap-1.5 bg-indigo-100 text-indigo-700 px-3 py-1.5 rounded-full text-sm font-bold shadow-sm border border-indigo-200">
+                          <i className="fa-solid fa-route text-[14px]"></i>
+                          <span>走行距離: {distance} km</span>
+                        </div>
+                      )}
+                    </div>
+
+                    <div className="space-y-4">
+                      {dailyRecords.map((record) => (
+                        <div key={record.id} className="bg-white p-5 rounded-2xl shadow-sm border border-slate-100 hover:shadow-md transition-shadow group relative overflow-hidden">
+                          {(record.purpose === '出発' || record.purpose === '帰社') && (
+                            <div className="absolute left-0 top-0 bottom-0 w-1.5 bg-indigo-500"></div>
+                          )}
+
+                          <div className="flex justify-between items-start mb-3">
+                            <div className="flex items-center gap-3">
+                              <span className={`inline-flex items-center gap-1.5 px-3 py-1 text-sm font-semibold rounded-lg ${
+                                record.purpose === '出発' ? 'bg-emerald-50 text-emerald-700' :
+                                record.purpose === '帰社' ? 'bg-slate-100 text-slate-700' :
+                                'bg-indigo-50 text-indigo-700'
+                              }`}>
+                                <i className="fa-solid fa-tag text-[12px]"></i>
+                                {record.purpose}
+                              </span>
+                            </div>
+                            <div className="flex items-center gap-3">
+                              <div className="flex items-center gap-1.5 text-slate-400 text-sm font-medium">
+                                <i className="fa-regular fa-clock text-[14px]"></i>
+                                {record.time}
+                              </div>
+                              
+                              <div className="flex items-center border border-slate-100 rounded-lg overflow-hidden shadow-sm">
+                                <button 
+                                  onClick={() => handleEdit(record)}
+                                  className="text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 p-2 transition-colors border-r border-slate-100"
+                                  title="この記録を修正"
+                                >
+                                  <i className="fa-solid fa-pen text-[14px]"></i>
+                                </button>
+                                <button 
+                                  onClick={() => handleDelete(record.id)}
+                                  className="text-slate-400 hover:text-rose-600 hover:bg-rose-50 p-2 transition-colors"
+                                  title="この記録を削除"
+                                >
+                                  <i className="fa-solid fa-trash text-[14px]"></i>
+                                </button>
+                              </div>
+                            </div>
+                          </div>
+
+                          <div>
+                            <div className="flex items-start gap-2.5 mb-2">
+                              <i className="fa-solid fa-location-dot text-[18px] text-rose-500 mt-0.5 shrink-0"></i>
+                              <p className="font-semibold text-slate-900 text-lg leading-snug">{record.location}</p>
+                            </div>
+                            
+                            {record.odometer && (
+                              <div className="flex items-center gap-1.5 mt-2 mb-1 w-fit bg-slate-50 px-2.5 py-1 rounded-md border border-slate-100">
+                                <i className="fa-solid fa-gauge text-[14px] text-purple-500"></i>
+                                <span className="text-sm font-medium text-slate-600">メーター: {record.odometer} km</span>
+                              </div>
+                            )}
+
+                            {record.notes && (
+                              <div className="flex items-start gap-2.5 mt-3 pt-3 border-t border-slate-50">
+                                <i className="fa-regular fa-file-lines text-[16px] text-slate-400 mt-0.5 shrink-0"></i>
+                                <p className="text-slate-600 text-sm leading-relaxed">{record.notes}</p>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                );
+              })
+            )}
+          </main>
+
+          {/* 下部固定バー */}
+          <div className="fixed bottom-0 left-0 right-0 p-4 bg-white/80 backdrop-blur-md border-t border-slate-200 z-10">
+            <div className="max-w-2xl mx-auto">
+              <button
+                onClick={openNewRecordModal}
+                className="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-lg py-4 rounded-xl shadow-lg shadow-indigo-600/20 transition-all active:scale-[0.98] flex items-center justify-center gap-2"
+              >
+                <i className="fa-solid fa-plus text-[20px]"></i>
+                記録を追加
+              </button>
+            </div>
+          </div>
+
+          {/* カスタムダイアログ */}
+          {dialog.type && (
+            <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
+              <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm" onClick={closeDialog} />
+              <div className="relative bg-white w-full max-w-sm rounded-3xl shadow-2xl p-6 animate-in zoom-in-95 duration-200">
+                <div className="mb-6">
+                  {dialog.type === 'confirm' ? (
+                    <div className="flex items-center gap-3 text-rose-600 font-bold text-lg mb-3">
+                      <i className="fa-solid fa-triangle-exclamation text-[20px]"></i>
+                      確認
+                    </div>
+                  ) : (
+                    <div className="font-bold text-lg mb-3 text-slate-800">お知らせ</div>
+                  )}
+                  <p className="text-slate-600 whitespace-pre-wrap leading-relaxed">{dialog.message}</p>
+                </div>
+                
+                <div className="flex gap-3 justify-end mt-4">
+                  {dialog.type === 'confirm' && (
+                    <button 
+                      onClick={closeDialog}
+                      className="px-4 py-2 rounded-xl text-slate-500 font-medium hover:bg-slate-100 transition-colors"
+                    >
+                      キャンセル
+                    </button>
+                  )}
+                  <button 
+                    onClick={() => {
+                      if (dialog.type === 'confirm' && dialog.onConfirm) {
+                        dialog.onConfirm();
+                      } else {
+                        closeDialog();
+                      }
+                    }}
+                    className={`px-5 py-2 rounded-xl text-white font-bold shadow-md transition-transform active:scale-95 ${
+                      dialog.type === 'confirm' ? 'bg-rose-600 hover:bg-rose-700 shadow-rose-600/20' : 'bg-indigo-600 hover:bg-indigo-700 shadow-indigo-600/20'
+                    }`}
+                  >
+                    {dialog.type === 'confirm' ? 'はい、実行します' : 'OK'}
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* 設定・データ管理モーダル */}
+          {isSettingsOpen && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+              <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm" onClick={() => setIsSettingsOpen(false)} />
+              <div className="relative bg-white w-full max-w-sm rounded-3xl shadow-2xl animate-in zoom-in-95 duration-200 overflow-hidden">
+                <div className="flex items-center justify-between p-5 border-b border-slate-100 bg-slate-50">
+                  <h2 className="text-lg font-bold text-slate-800 flex items-center gap-2">
+                    <i className="fa-solid fa-gear text-[18px] text-slate-500"></i>
+                    データ管理
+                  </h2>
+                  <button onClick={() => setIsSettingsOpen(false)} className="w-8 h-8 flex items-center justify-center text-slate-400 hover:bg-slate-200 rounded-full">
+                    <i className="fa-solid fa-xmark text-[18px]"></i>
+                  </button>
+                </div>
+                
+                <div className="p-5 space-y-4">
+                  <p className="text-sm text-slate-600 mb-2">
+                    データは自動的にこのブラウザに保存されています。（現在: {records.length}件）
+                  </p>
+
+                  <button 
+                    onClick={handleBackup}
+                    className="w-full flex items-center justify-between p-4 bg-indigo-50 hover:bg-indigo-100 border border-indigo-100 rounded-xl transition-colors text-indigo-700 font-semibold"
+                  >
+                    <div className="flex items-center gap-3">
+                      <i className="fa-solid fa-cloud-arrow-down text-[20px]"></i>
+                      <div className="text-left">
+                        <div className="text-sm">バックアップを作成</div>
+                        <div className="text-xs font-normal opacity-70">全データをファイルとして保存</div>
+                      </div>
+                    </div>
+                  </button>
+
+                  <input 
+                    type="file" 
+                    accept=".json" 
+                    ref={fileInputRef} 
+                    onChange={handleRestore} 
+                    className="hidden" 
+                  />
+                  <button 
+                    onClick={() => fileInputRef.current.click()}
+                    className="w-full flex items-center justify-between p-4 bg-emerald-50 hover:bg-emerald-100 border border-emerald-100 rounded-xl transition-colors text-emerald-700 font-semibold"
+                  >
+                    <div className="flex items-center gap-3">
+                      <i className="fa-solid fa-cloud-arrow-up text-[20px]"></i>
+                      <div className="text-left">
+                        <div className="text-sm">データを復元</div>
+                        <div className="text-xs font-normal opacity-70">バックアップファイルから読み込む</div>
+                      </div>
+                    </div>
+                  </button>
+
+                  <div className="border-t border-slate-100 my-4 pt-4">
+                    <button 
+                      onClick={handleClearAll}
+                      className="w-full flex items-center justify-center gap-2 p-3 text-rose-600 hover:bg-rose-50 rounded-xl transition-colors text-sm font-bold"
+                    >
+                      <i className="fa-solid fa-trash text-[16px]"></i>
+                      全データを完全に削除する
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* 記録追加モーダル */}
+          {isModalOpen && (
+            <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center sm:p-4">
+              <div className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm" onClick={closeModal} />
+              <div className="relative bg-white w-full sm:w-full sm:max-w-md rounded-t-3xl sm:rounded-3xl shadow-2xl flex flex-col max-h-[90vh] animate-in slide-in-from-bottom-4 sm:slide-in-from-bottom-8 sm:zoom-in-95 duration-200">
+                <div className="flex items-center justify-between p-5 border-b border-slate-100">
+                  <h2 className="text-lg font-bold text-slate-800">
+                    {editingId ? '記録を修正' : '記録を追加'}
+                  </h2>
+                  <button onClick={closeModal} className="w-8 h-8 flex items-center justify-center text-slate-400 hover:text-slate-600 bg-slate-50 hover:bg-slate-100 rounded-full transition-colors">
+                    <i className="fa-solid fa-xmark text-[18px]"></i>
+                  </button>
+                </div>
+
+                <div className="p-5 overflow-y-auto flex-1 space-y-6">
+                  <div>
+                    <label className="flex items-center gap-1.5 text-sm font-bold text-slate-700 mb-2">
+                      <i className="fa-regular fa-clock text-[16px] text-indigo-500"></i>いつ
+                    </label>
+                    <div className="flex gap-3">
+                      <input type="date" name="date" value={formData.date} onChange={handleInputChange} className="flex-1 bg-slate-50 border-transparent focus:border-indigo-500 focus:bg-white focus:ring-2 focus:ring-indigo-200 rounded-xl px-4 py-3 text-slate-700 outline-none transition-all" />
+                      <input type="time" name="time" value={formData.time} onChange={handleInputChange} className="w-1/3 bg-slate-50 border-transparent focus:border-indigo-500 focus:bg-white focus:ring-2 focus:ring-indigo-200 rounded-xl px-4 py-3 text-slate-700 outline-none transition-all" />
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="flex items-center gap-1.5 text-sm font-bold text-slate-700 mb-2">
+                      <i className="fa-solid fa-location-dot text-[16px] text-rose-500"></i>どこに
+                    </label>
+                    <input 
+                      type="text" 
+                      name="location" 
+                      list="location-options"
+                      placeholder="例: 越谷営業所" 
+                      value={formData.location} 
+                      onChange={handleInputChange} 
+                      className="w-full bg-slate-50 border-transparent focus:border-indigo-500 focus:bg-white focus:ring-2 focus:ring-indigo-200 rounded-xl px-4 py-3 text-slate-700 outline-none transition-all placeholder:text-slate-300" 
+                    />
+                    <datalist id="location-options">
+                      <option value="越谷" />
+                      <option value="県内" />
+                      <option value="都内" />
+                      <option value="郊外" />
+                    </datalist>
+                  </div>
+
+                  <div>
+                    <label className="flex items-center gap-1.5 text-sm font-bold text-slate-700 mb-2">
+                      <i className="fa-solid fa-tag text-[16px] text-amber-500"></i>なんで (目的)
+                    </label>
+                    <div className="flex flex-wrap gap-2 mb-3">
+                      {purposeTags.map(tag => (
+                        <button key={tag} type="button" onClick={() => handleTagClick(tag)} className={`px-4 py-2 rounded-xl text-sm font-medium transition-all ${formData.purpose === tag ? 'bg-indigo-600 text-white shadow-md shadow-indigo-200' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}>
+                          {formData.purpose === tag && <i className="fa-solid fa-check text-[14px] inline mr-1"></i>}
+                          {tag}
+                        </button>
+                      ))}
+                    </div>
+                    <input type="text" name="purpose" placeholder="その他の目的を手入力..." value={formData.purpose} onChange={handleInputChange} className="w-full bg-slate-50 border-transparent focus:border-indigo-500 focus:bg-white focus:ring-2 focus:ring-indigo-200 rounded-xl px-4 py-3 text-sm text-slate-700 outline-none transition-all placeholder:text-slate-300" />
+                  </div>
+
+                  <div>
+                    <label className="flex items-center gap-1.5 text-sm font-bold text-slate-700 mb-2">
+                      <i className="fa-solid fa-gauge text-[16px] text-purple-500"></i>
+                      メーター値 (km) 
+                      <span className="text-slate-400 text-xs font-normal ml-1">※出発・帰社時など</span>
+                    </label>
+                    <input 
+                      type="number" 
+                      name="odometer" 
+                      placeholder="例: 12500" 
+                      value={formData.odometer} 
+                      onChange={handleInputChange} 
+                      className="w-full bg-slate-50 border-transparent focus:border-indigo-500 focus:bg-white focus:ring-2 focus:ring-indigo-200 rounded-xl px-4 py-3 text-slate-700 outline-none transition-all placeholder:text-slate-300" 
+                    />
+                  </div>
+
+                  <div>
+                    <label className="flex items-center gap-1.5 text-sm font-bold text-slate-700 mb-2">
+                      <i className="fa-regular fa-file-lines text-[16px] text-teal-500"></i>備考
+                    </label>
+                    <textarea name="notes" placeholder="気づいたこと、特記事項など..." value={formData.notes} onChange={handleInputChange} rows="3" className="w-full bg-slate-50 border-transparent focus:border-indigo-500 focus:bg-white focus:ring-2 focus:ring-indigo-200 rounded-xl px-4 py-3 text-slate-700 outline-none transition-all resize-none placeholder:text-slate-300"></textarea>
+                  </div>
+                </div>
+
+                <div className="p-5 border-t border-slate-100 bg-slate-50/50 rounded-b-3xl">
+                  <button onClick={handleSave} className="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-lg py-4 rounded-xl shadow-lg shadow-indigo-600/20 transition-all active:scale-[0.98]">
+                    {editingId ? '修正を保存する' : '記録を保存する'}
+                  </button>
+                </div>
+                
+              </div>
+            </div>
+          )}
+        </div>
+      );
+    }
+
+    const root = ReactDOM.createRoot(document.getElementById('root'));
+    root.render(<App />);
+  </script>
+</body>
+</html>
